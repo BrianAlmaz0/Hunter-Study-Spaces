@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 dotenv.config();
 
@@ -38,16 +39,23 @@ const isValidCunyEmail = (email) =>
   ALLOWED_DOMAINS.some(d => email.toLowerCase().trim().endsWith(`@${d}`));
 const generateCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
-// ── Email transporter ─────────────────────────────────────────────────────────
-// Requires in backend/.env:
-//   EMAIL_USER=you@gmail.com
-//   EMAIL_PASS=xxxx xxxx xxxx xxxx   (Gmail App Password — NOT your normal password)
-//   EMAIL_FROM=Hunter Study Spaces <you@gmail.com>  (optional)
+// ── Email ─────────────────────────────────────────────────────────────────────
+// Primary:  Resend (RESEND_API_KEY in .env)         → reliable delivery
+// Fallback: Gmail SMTP (EMAIL_USER + EMAIL_PASS)    → kept for compatibility
+// Dev mode: neither set → code printed to console
 //
-// Gmail App Passwords: https://myaccount.google.com/apppasswords
-// (Requires 2-Step Verification to be enabled on the sending Gmail account)
+// Resend setup:
+//   1. Sign up at https://resend.com (free tier: 3 000 emails/month)
+//   2. Add and verify a sending domain (or use the sandbox for testing)
+//   3. Generate an API key and set RESEND_API_KEY in backend/.env
+//   4. Set EMAIL_FROM to a verified address on your domain, e.g.
+//      EMAIL_FROM=Hunter Study Spaces <noreply@yourdomain.com>
 
-const emailTransporter = (process.env.EMAIL_USER && process.env.EMAIL_PASS)
+const resendClient = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
+
+const smtpTransporter = (!resendClient && process.env.EMAIL_USER && process.env.EMAIL_PASS)
   ? nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
@@ -59,43 +67,68 @@ const emailTransporter = (process.env.EMAIL_USER && process.env.EMAIL_PASS)
     })
   : null;
 
-if (emailTransporter) {
-  console.log(`[EMAIL] Transporter created for ${process.env.EMAIL_USER}`);
-  emailTransporter.verify((err) => {
+if (resendClient) {
+  console.log('[EMAIL] Mode: Resend');
+} else if (smtpTransporter) {
+  console.log(`[EMAIL] Mode: Gmail SMTP (${process.env.EMAIL_USER})`);
+  smtpTransporter.verify((err) => {
     if (err) console.error('[EMAIL] SMTP connection failed:', err.message);
     else     console.log('[EMAIL] SMTP connection verified — ready to send');
   });
 } else {
-  console.warn('[EMAIL] EMAIL_USER / EMAIL_PASS not set — running in dev/console mode');
+  console.warn('[EMAIL] Mode: dev/console — set RESEND_API_KEY in .env for real emails');
+}
+
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'Hunter Study Spaces <onboarding@resend.dev>';
+
+function verificationEmailHtml(code) {
+  return `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+      <h2 style="color:#1d4ed8;margin-bottom:8px">Hunter Study Spaces</h2>
+      <p style="color:#374151">Use the code below to verify your email address.</p>
+      <div style="background:#f1f5f9;border-radius:12px;padding:28px;text-align:center;margin:24px 0">
+        <span style="font-size:40px;letter-spacing:10px;font-weight:700;color:#0f172a">${code}</span>
+      </div>
+      <p style="color:#6b7280;font-size:14px">This code expires in 15 minutes. If you didn't request this, you can safely ignore this email.</p>
+    </div>`;
 }
 
 // Returns true if email was sent, false if console fallback was used.
 async function sendVerificationEmail(email, code) {
-  if (!emailTransporter) {
-    console.log(`\n[DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    console.log(`[DEV] Verification code for ${email}`);
-    console.log(`[DEV] Code: ${code}`);
-    console.log(`[DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-    return false;
+  const subject = 'Hunter Study Spaces – Verification Code';
+  const text    = `Your Hunter Study Spaces verification code is: ${code}\n\nThis code expires in 15 minutes.`;
+  const html    = verificationEmailHtml(code);
+
+  // ── Resend (preferred) ────────────────────────────────────────────────────
+  if (resendClient) {
+    console.log(`[EMAIL] Sending via Resend to ${email}...`);
+    const { data, error } = await resendClient.emails.send({
+      from: EMAIL_FROM,
+      to: email,
+      subject,
+      text,
+      html,
+    });
+    if (error) {
+      console.error('[EMAIL] Resend failed:', error.message ?? JSON.stringify(error));
+      throw new Error(error.message ?? 'Resend delivery failed');
+    }
+    console.log(`[EMAIL] Sent successfully via Resend — id: ${data.id}`);
+    return true;
   }
-  console.log(`[EMAIL] Sending verification email to ${email}...`);
-  const info = await emailTransporter.sendMail({
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-    to: email,
-    subject: 'Hunter Study Spaces – Your Verification Code',
-    text: `Your verification code is: ${code}\n\nThis code expires in 15 minutes.\n\nIf you didn't request this, you can ignore this email.`,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2 style="color:#1d4ed8">Hunter Study Spaces</h2>
-        <p>Use the code below to verify your email address.</p>
-        <div style="background:#f1f5f9;border-radius:12px;padding:24px;text-align:center;margin:24px 0">
-          <span style="font-size:36px;letter-spacing:8px;font-weight:700;color:#0f172a">${code}</span>
-        </div>
-        <p style="color:#64748b;font-size:14px">This code expires in 15 minutes. If you didn't request this, you can ignore this email.</p>
-      </div>`,
-  });
-  console.log(`[EMAIL] Sent successfully to ${email} — messageId: ${info.messageId}`);
-  return true;
+
+  // ── Gmail SMTP (fallback) ─────────────────────────────────────────────────
+  if (smtpTransporter) {
+    console.log(`[EMAIL] Sending via Gmail SMTP to ${email}...`);
+    const info = await smtpTransporter.sendMail({ from: EMAIL_FROM, to: email, subject, text, html });
+    console.log(`[EMAIL] Sent successfully via SMTP — messageId: ${info.messageId}`);
+    return true;
+  }
+
+  // ── Dev console fallback ──────────────────────────────────────────────────
+  console.log(`\n[EMAIL] Dev fallback: verification code is ${code}`);
+  console.log(`[EMAIL] (for ${email})\n`);
+  return false;
 }
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
@@ -114,38 +147,46 @@ function requireAuth(req, res, next) {
 // ── Auth endpoints ────────────────────────────────────────────────────────────
 
 // GET /api/auth/test-email
-// Tests the SMTP connection and optionally sends a real email.
-// Usage: GET /api/auth/test-email            → connection test only
-//        GET /api/auth/test-email?to=you@x   → also sends a test message
+// Reports which email mode is active and optionally sends a test message.
+// Usage: GET /api/auth/test-email            → mode report only
+//        GET /api/auth/test-email?to=you@x   → also sends a test email
 app.get('/api/auth/test-email', async (req, res) => {
-  if (!emailTransporter) {
+  const mode = resendClient ? 'resend' : smtpTransporter ? 'smtp' : 'dev-console';
+
+  if (mode === 'dev-console') {
     return res.json({
       ok: false,
-      mode: 'dev-console',
-      message: 'EMAIL_USER / EMAIL_PASS not configured — codes are printed to the server console.',
+      mode,
+      message: 'No email provider configured. Set RESEND_API_KEY in .env for real emails.',
     });
   }
-  try {
-    await new Promise((resolve, reject) =>
-      emailTransporter.verify((err, ok) => (err ? reject(err) : resolve(ok)))
-    );
-    const result = { ok: true, mode: 'smtp', smtpUser: process.env.EMAIL_USER, message: 'SMTP connection OK.' };
 
-    const to = req.query.to;
-    if (to) {
-      const info = await emailTransporter.sendMail({
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+  const to = req.query.to;
+  if (!to) {
+    return res.json({ ok: true, mode, message: `Email mode is active (${mode}). Add ?to=addr to send a test.` });
+  }
+
+  try {
+    if (resendClient) {
+      const { data, error } = await resendClient.emails.send({
+        from: EMAIL_FROM,
         to,
         subject: 'Hunter Study Spaces — Email Test',
-        text: 'This is a test email from the Hunter Study Spaces backend.',
+        text: 'This is a test email from the Hunter Study Spaces backend (Resend).',
       });
-      result.testEmailSent = true;
-      result.testEmailTo = to;
-      result.messageId = info.messageId;
+      if (error) throw new Error(error.message ?? JSON.stringify(error));
+      return res.json({ ok: true, mode, sentTo: to, id: data.id });
+    } else {
+      const info = await smtpTransporter.sendMail({
+        from: EMAIL_FROM,
+        to,
+        subject: 'Hunter Study Spaces — Email Test',
+        text: 'This is a test email from the Hunter Study Spaces backend (SMTP).',
+      });
+      return res.json({ ok: true, mode, sentTo: to, messageId: info.messageId });
     }
-    return res.json(result);
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message, code: err.code });
+    return res.status(500).json({ ok: false, mode, error: err.message });
   }
 });
 
