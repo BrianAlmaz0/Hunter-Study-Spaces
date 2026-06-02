@@ -39,32 +39,62 @@ const isValidCunyEmail = (email) =>
 const generateCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 // ── Email transporter ─────────────────────────────────────────────────────────
-// To enable real emails: add EMAIL_USER and EMAIL_PASS to backend/.env
-// For Gmail use an App Password: https://myaccount.google.com/apppasswords
-// EMAIL_FROM is optional (e.g. "Hunter Study Spaces <you@gmail.com>")
-const emailTransporter = process.env.EMAIL_USER
+// Requires in backend/.env:
+//   EMAIL_USER=you@gmail.com
+//   EMAIL_PASS=xxxx xxxx xxxx xxxx   (Gmail App Password — NOT your normal password)
+//   EMAIL_FROM=Hunter Study Spaces <you@gmail.com>  (optional)
+//
+// Gmail App Passwords: https://myaccount.google.com/apppasswords
+// (Requires 2-Step Verification to be enabled on the sending Gmail account)
+
+const emailTransporter = (process.env.EMAIL_USER && process.env.EMAIL_PASS)
   ? nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-      connectionTimeout: 5_000,
-      greetingTimeout:   5_000,
-      socketTimeout:     10_000,
+      connectionTimeout: 8_000,
+      greetingTimeout:   8_000,
+      socketTimeout:     12_000,
     })
   : null;
 
-// Returns true if email was sent, false if it fell back to console.
+if (emailTransporter) {
+  console.log(`[EMAIL] Transporter created for ${process.env.EMAIL_USER}`);
+  emailTransporter.verify((err) => {
+    if (err) console.error('[EMAIL] SMTP connection failed:', err.message);
+    else     console.log('[EMAIL] SMTP connection verified — ready to send');
+  });
+} else {
+  console.warn('[EMAIL] EMAIL_USER / EMAIL_PASS not set — running in dev/console mode');
+}
+
+// Returns true if email was sent, false if console fallback was used.
 async function sendVerificationEmail(email, code) {
   if (!emailTransporter) {
-    console.log(`[DEV] Verification code for ${email}: ${code}`);
+    console.log(`\n[DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[DEV] Verification code for ${email}`);
+    console.log(`[DEV] Code: ${code}`);
+    console.log(`[DEV] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
     return false;
   }
-  await emailTransporter.sendMail({
+  console.log(`[EMAIL] Sending verification email to ${email}...`);
+  const info = await emailTransporter.sendMail({
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
     to: email,
-    subject: 'Hunter Study Spaces – Verify Your Email',
-    text: `Your verification code is: ${code}\n\nThis code expires in 15 minutes.`,
-    html: `<p>Your verification code is: <strong style="font-size:22px;letter-spacing:4px">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+    subject: 'Hunter Study Spaces – Your Verification Code',
+    text: `Your verification code is: ${code}\n\nThis code expires in 15 minutes.\n\nIf you didn't request this, you can ignore this email.`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2 style="color:#1d4ed8">Hunter Study Spaces</h2>
+        <p>Use the code below to verify your email address.</p>
+        <div style="background:#f1f5f9;border-radius:12px;padding:24px;text-align:center;margin:24px 0">
+          <span style="font-size:36px;letter-spacing:8px;font-weight:700;color:#0f172a">${code}</span>
+        </div>
+        <p style="color:#64748b;font-size:14px">This code expires in 15 minutes. If you didn't request this, you can ignore this email.</p>
+      </div>`,
   });
+  console.log(`[EMAIL] Sent successfully to ${email} — messageId: ${info.messageId}`);
   return true;
 }
 
@@ -82,6 +112,42 @@ function requireAuth(req, res, next) {
 }
 
 // ── Auth endpoints ────────────────────────────────────────────────────────────
+
+// GET /api/auth/test-email
+// Tests the SMTP connection and optionally sends a real email.
+// Usage: GET /api/auth/test-email            → connection test only
+//        GET /api/auth/test-email?to=you@x   → also sends a test message
+app.get('/api/auth/test-email', async (req, res) => {
+  if (!emailTransporter) {
+    return res.json({
+      ok: false,
+      mode: 'dev-console',
+      message: 'EMAIL_USER / EMAIL_PASS not configured — codes are printed to the server console.',
+    });
+  }
+  try {
+    await new Promise((resolve, reject) =>
+      emailTransporter.verify((err, ok) => (err ? reject(err) : resolve(ok)))
+    );
+    const result = { ok: true, mode: 'smtp', smtpUser: process.env.EMAIL_USER, message: 'SMTP connection OK.' };
+
+    const to = req.query.to;
+    if (to) {
+      const info = await emailTransporter.sendMail({
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to,
+        subject: 'Hunter Study Spaces — Email Test',
+        text: 'This is a test email from the Hunter Study Spaces backend.',
+      });
+      result.testEmailSent = true;
+      result.testEmailTo = to;
+      result.messageId = info.messageId;
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
+  }
+});
 
 app.post('/api/auth/signup', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database unavailable.' });
