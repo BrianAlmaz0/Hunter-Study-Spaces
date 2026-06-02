@@ -1,4 +1,4 @@
-import { MapPin, Clock, Heart, Users } from 'lucide-react';
+import { MapPin, Clock, Heart, Users, ChevronLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface Room {
@@ -15,6 +15,7 @@ interface Room {
 
 interface ResultsScreenProps {
   onRoomSelect: (room: Room) => void;
+  onBack?: () => void;
   favorites: string[];
   isDesktop: boolean;
   rooms?: Room[];
@@ -38,10 +39,21 @@ function formatAvailability(minutes: number | null): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
-export function ResultsScreen({ onRoomSelect, favorites, isDesktop, rooms = mockRooms, activeRoom }: ResultsScreenProps) {
+export function ResultsScreen({ onRoomSelect, onBack, favorites, isDesktop, rooms = mockRooms, activeRoom }: ResultsScreenProps) {
   return (
     <div className={`min-h-full ${isDesktop ? 'px-12 py-10' : 'px-6 py-6'}`}>
       <div className={isDesktop ? 'max-w-6xl mx-auto' : 'max-w-md mx-auto'}>
+
+        {/* Back button — mobile only */}
+        {!isDesktop && onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 -ml-1"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Back
+          </button>
+        )}
 
         {/* Header */}
         <div className={isDesktop ? 'mb-8' : 'mb-6'}>

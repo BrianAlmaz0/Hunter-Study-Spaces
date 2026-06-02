@@ -51,9 +51,8 @@ const generateCode = () => String(Math.floor(100000 + Math.random() * 900000));
 //   4. Set EMAIL_FROM to a verified address on your domain, e.g.
 //      EMAIL_FROM=Hunter Study Spaces <noreply@yourdomain.com>
 
-const resendClient = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
+const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim();
+const resendClient = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 const smtpTransporter = (!resendClient && process.env.EMAIL_USER && process.env.EMAIL_PASS)
   ? nodemailer.createTransport({

@@ -318,7 +318,7 @@ export default function App() {
       )}
       {currentScreen === 'results' && (
         <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <ResultsScreen rooms={searchResults} favorites={favorites} onRoomSelect={handleRoomSelect} isDesktop={isDesktop} activeRoom={currentOccupancy?.room ?? null} />
+          <ResultsScreen rooms={searchResults} favorites={favorites} onRoomSelect={handleRoomSelect} onBack={() => setCurrentScreen('home')} isDesktop={isDesktop} activeRoom={currentOccupancy?.room ?? null} />
         </motion.div>
       )}
       {currentScreen === 'detail' && selectedRoom && (
@@ -451,23 +451,28 @@ export default function App() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-auto">{screens}</div>
+      {/* Content — padded so last card clears the fixed nav */}
+      <div className="flex-1 overflow-auto" style={{ paddingBottom: 'calc(64px + env(safe-area-inset-bottom))' }}>
+        {screens}
+      </div>
 
-      {currentScreen !== 'detail' && (
-        <div className="bg-card border-t border-border px-6 py-3 safe-area-inset-bottom">
-          <div className="flex items-center justify-around max-w-md mx-auto">
-            <button onClick={() => setCurrentScreen('home')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'home' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
-              <Home className="w-6 h-6" /><span className="text-xs">Home</span>
-            </button>
-            <button onClick={() => setCurrentScreen('results')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'results' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
-              <Search className="w-6 h-6" /><span className="text-xs">Search</span>
-            </button>
-            <button onClick={() => setCurrentScreen('favorites')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'favorites' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
-              <Heart className="w-6 h-6" /><span className="text-xs">Favorites</span>
-            </button>
-          </div>
+      {/* Fixed bottom nav */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border px-6"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex items-center justify-around max-w-md mx-auto py-3">
+          <button onClick={() => setCurrentScreen('home')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'home' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Home className="w-6 h-6" /><span className="text-xs">Home</span>
+          </button>
+          <button onClick={() => setCurrentScreen('results')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'results' || currentScreen === 'detail' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Search className="w-6 h-6" /><span className="text-xs">Search</span>
+          </button>
+          <button onClick={() => setCurrentScreen('favorites')} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${currentScreen === 'favorites' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Heart className="w-6 h-6" /><span className="text-xs">Favorites</span>
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
