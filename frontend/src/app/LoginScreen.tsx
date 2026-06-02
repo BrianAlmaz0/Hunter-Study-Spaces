@@ -162,7 +162,7 @@ export function LoginScreen({ onLoginSuccess, isDesktop }: LoginScreenProps) {
       if (!res.ok) throw new Error(data.error || 'Signup failed.');
       setPendingEmail(data.email);
       setStep('verify');
-      setInfo('Check your email for a 6-digit verification code. It expires in 15 minutes.');
+      setInfo(data.message || 'Check your email for a 6-digit verification code. It expires in 15 minutes.');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -203,7 +203,7 @@ export function LoginScreen({ onLoginSuccess, isDesktop }: LoginScreenProps) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to resend.');
-      setInfo('New code sent! Check your email.');
+      setInfo(data.message || 'New code sent! Check your email.');
     } catch (err: any) {
       setError(err.message);
     }

@@ -46,13 +46,17 @@ const emailTransporter = process.env.EMAIL_USER
   ? nodemailer.createTransport({
       service: 'gmail',
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      connectionTimeout: 5_000,
+      greetingTimeout:   5_000,
+      socketTimeout:     10_000,
     })
   : null;
 
+// Returns true if email was sent, false if it fell back to console.
 async function sendVerificationEmail(email, code) {
   if (!emailTransporter) {
     console.log(`[DEV] Verification code for ${email}: ${code}`);
-    return;
+    return false;
   }
   await emailTransporter.sendMail({
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
@@ -61,6 +65,7 @@ async function sendVerificationEmail(email, code) {
     text: `Your verification code is: ${code}\n\nThis code expires in 15 minutes.`,
     html: `<p>Your verification code is: <strong style="font-size:22px;letter-spacing:4px">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
   });
+  return true;
 }
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
@@ -113,8 +118,20 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
 
-    await sendVerificationEmail(normalizedEmail, code);
-    return res.status(200).json({ message: 'Verification code sent.', email: normalizedEmail });
+    let emailSent = false;
+    try {
+      emailSent = await sendVerificationEmail(normalizedEmail, code);
+    } catch (emailErr) {
+      console.error('[EMAIL] Failed to send verification email:', emailErr.message);
+      console.log(`[DEV FALLBACK] Verification code for ${normalizedEmail}: ${code}`);
+    }
+
+    return res.status(200).json({
+      message: emailSent
+        ? 'Verification code sent to your email.'
+        : 'Account created. Check the server console for your verification code (email unavailable).',
+      email: normalizedEmail,
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -169,8 +186,19 @@ app.post('/api/auth/resend-code', async (req, res) => {
       { $set: { verificationCode: code, verificationCodeExpiresAt } }
     );
 
-    await sendVerificationEmail(normalizedEmail, code);
-    return res.status(200).json({ message: 'New verification code sent.' });
+    let emailSent = false;
+    try {
+      emailSent = await sendVerificationEmail(normalizedEmail, code);
+    } catch (emailErr) {
+      console.error('[EMAIL] Failed to resend verification email:', emailErr.message);
+      console.log(`[DEV FALLBACK] New verification code for ${normalizedEmail}: ${code}`);
+    }
+
+    return res.status(200).json({
+      message: emailSent
+        ? 'New code sent! Check your email.'
+        : 'New code generated. Check the server console (email unavailable).',
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
